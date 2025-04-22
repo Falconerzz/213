@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 contract StudentInformation {
 
-    // Struct สำหรับเก็บข้อมูลนักเรียน
+    // Struct เพื่อเก็บข้อมูลนักเรียน
     struct Student {
         string studentID;
         string firstName;
@@ -14,32 +14,39 @@ contract StudentInformation {
         string postcode;
     }
 
-    // Mapping สำหรับเก็บข้อมูลนักเรียนโดยใช้ studentID
+    // Mapping สำหรับเก็บข้อมูลนักเรียน โดยใช้ studentID เป็นคีย์
     mapping(string => Student) private students;
 
-    // Event ที่จะถูกกระตุ้นเมื่อมีการเพิ่มข้อมูลนักเรียน
+    // Event ที่จะถูกกระตุ้นเมื่อเพิ่มข้อมูลนักเรียน
     event StudentAdded(string studentID, string firstName, string surname);
 
-    // ฟังก์ชันตรวจสอบรหัสนักศึกษา
+    // ฟังก์ชันสำหรับตรวจสอบรหัสนักศึกษา
     function isValidID(string memory studentID) internal pure returns (bool) {
-        // ตรวจสอบความยาวของรหัส
-        if (bytes(studentID).length != 8) return false;
+        if (bytes(studentID).length != 8) {
+            return false;
+        }
 
         // ตรวจสอบตัวอักษรแรก
-        if (bytes(studentID)[0] != 'B' && bytes(studentID)[0] != 'M' && bytes(studentID)[0] != 'D') return false;
+        bytes1 level = bytes(studentID)[0];  // เปลี่ยนเป็น bytes1
+        if (level != 'B' && level != 'M' && level != 'D') {
+            return false;
+        }
 
         // คำนวณ checksum
-        uint checksum = 0;
-        for (uint i = 1; i < 7; i++) {
-            checksum += (uint(uint8(bytes(studentID)[i])) - 48) * (i % 2 == 0 ? 49 : 7);
-        }
+        uint checksum = (uint(uint8(bytes(studentID)[1])) - 48) * 49 +
+                        (uint(uint8(bytes(studentID)[2])) - 48) * 7 +
+                        (uint(uint8(bytes(studentID)[3])) - 48) * 49 +
+                        (uint(uint8(bytes(studentID)[4])) - 48) * 7 +
+                        (uint(uint8(bytes(studentID)[5])) - 48) * 49 +
+                        (uint(uint8(bytes(studentID)[6])) - 48) * 7;
         checksum = checksum % 10;
 
         // ตรวจสอบตัวเลขสุดท้าย
-        return checksum == uint(uint8(bytes(studentID)[7])) - 48;
+        uint lastDigit = uint(uint8(bytes(studentID)[7])) - 48;
+        return checksum == lastDigit;
     }
 
-    // ฟังก์ชันเพิ่มข้อมูลนักเรียน
+    // ฟังก์ชันสำหรับเพิ่มข้อมูลนักเรียน
     function addStudent(
         string memory studentID,
         string memory firstName,
@@ -49,10 +56,10 @@ contract StudentInformation {
         string memory city,
         string memory postcode
     ) public {
-        // ตรวจสอบความถูกต้องของรหัสนักศึกษา
+        // ตรวจสอบรหัสนักศึกษาก่อน
         require(isValidID(studentID), "Invalid student ID");
 
-        // บันทึกข้อมูลนักเรียนใน Mapping
+        // เก็บข้อมูลนักเรียนใน Mapping
         students[studentID] = Student({
             studentID: studentID,
             firstName: firstName,
@@ -63,11 +70,11 @@ contract StudentInformation {
             postcode: postcode
         });
 
-        // กระตุ้น Event เมื่อเพิ่มข้อมูลนักเรียน
+        // Emit Event เมื่อเพิ่มข้อมูลนักเรียน
         emit StudentAdded(studentID, firstName, surname);
     }
 
-    // ฟังก์ชันค้นหาข้อมูลนักเรียน
+    // ฟังก์ชันสำหรับค้นหาข้อมูลนักเรียน
     function getStudent(string memory studentID) public view returns (
         string memory firstName,
         string memory surname,
@@ -79,7 +86,7 @@ contract StudentInformation {
         // ดึงข้อมูลนักเรียนจาก Mapping
         Student memory student = students[studentID];
 
-        // ส่งคืนข้อมูลของนักเรียน
+        // ส่งคืนข้อมูลนักเรียน
         return (
             student.firstName,
             student.surname,
