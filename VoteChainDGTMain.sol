@@ -8,6 +8,7 @@ contract VoteChainDGTv2 is AccessControl {
 
     // Events
     event CandidateAdded(uint8 id, string partyName);
+    event CandidateRemoved(uint8 partyNumber, string partyName);
     event VoterRegistered(address voter, string stuId);
     event VoteCast(address voter, uint8 candidateId);
     event ElectionPeriodSet(uint256 startTime, uint256 endTime);
@@ -41,8 +42,8 @@ contract VoteChainDGTv2 is AccessControl {
 
     struct ElectionMeta {
         string name;
-        uint256 startTime; // เพิ่มเวลาเริ่มต้น
-        uint256 endTime;   // เพิ่มเวลาสิ้นสุด
+        uint256 startTime;
+        uint256 endTime;
         uint8 candidateCount;
         uint32 registerCount;
         uint32 voteCount;
@@ -125,12 +126,12 @@ contract VoteChainDGTv2 is AccessControl {
     /*======== Admin Functions ========*/
     
     // Get total number of admins
-    function getAdminCount() external view returns (uint) {
+    function getAdminCount() external view onlyRole(ADMIN_ROLE) returns (uint) {
         return admins.length;
     }
 
     // Get list of all admin addresses
-    function getAdmins() external view returns (address[] memory) {
+    function getAdmins() external view onlyRole(ADMIN_ROLE) returns (address[] memory) {
         return admins;
     }
 
@@ -176,6 +177,32 @@ contract VoteChainDGTv2 is AccessControl {
         }
 
         emit CandidateAdded(input.id, input.partyName);
+    }
+
+    // Remove a candidate by party number
+    function removeCandidate(uint8 partyNumber) external onlyRole(ADMIN_ROLE) {
+        require(block.timestamp < meta.startTime || meta.startTime == 0, "Cannot remove candidate after election starts");
+        require(candidates[partyNumber].id != 0, "Candidate not found");
+
+        string memory partyName = candidates[partyNumber].partyName;
+        delete candidates[partyNumber];
+        delete partyNameUsed[partyName];
+
+        // Recalculate candidateCount
+        uint8 maxId = 0;
+        for (uint8 i = 1; i <= meta.candidateCount; i++) {
+            if (candidates[i].id != 0 && i > maxId) {
+                maxId = i;
+            }
+        }
+        meta.candidateCount = maxId;
+
+        emit CandidateRemoved(partyNumber, partyName);
+    }
+
+    // Get election metadata
+    function getElectionMeta() external view onlyRole(ADMIN_ROLE) returns (ElectionMeta memory) {
+        return meta;
     }
 
     /*======== Voter Functions ========*/
@@ -235,19 +262,10 @@ contract VoteChainDGTv2 is AccessControl {
         emit VoteCast(account, partyNumber);
     }
 
-    /*======== Read-only Helpers ========*/
+    /*======== Shared Functions (Admin and Voter) ========*/
     
-    // Get election metadata
-    function getElectionMeta() external view returns (ElectionMeta memory) {
-        return meta;
-    }
-
     // Get all candidates with total count
-    function getAllCandidates() 
-        external 
-        view 
-        returns (uint8 totalCandidates, Candidate[] memory allCandidates) 
-    {
+    function getAllCandidates() external view returns (uint8 totalCandidates, Candidate[] memory allCandidates) {
         uint8 candidateCount = meta.candidateCount;
         Candidate[] memory candidateList = new Candidate[](candidateCount);
         uint8 index = 0;
@@ -263,23 +281,19 @@ contract VoteChainDGTv2 is AccessControl {
     }
 
     // Get candidate details by party number (excluding vote count)
-    function getCandidateByPartyNumber(uint8 partyNumber) 
-        external 
-        view 
-        returns (
-            uint8 id,
-            string memory title,
-            string memory firstName,
-            string memory lastName,
-            string memory nickname,
-            uint8 age,
-            string memory branch,
-            uint8 partyNum,
-            string memory partyName,
-            string memory policy,
-            uint256 addedTimestamp
-        ) 
-    {
+    function getCandidateByPartyNumber(uint8 partyNumber) external view returns (
+        uint8 id,
+        string memory title,
+        string memory firstName,
+        string memory lastName,
+        string memory nickname,
+        uint8 age,
+        string memory branch,
+        uint8 partyNum,
+        string memory partyName,
+        string memory policy,
+        uint256 addedTimestamp
+    ) {
         Candidate storage candidate = candidates[partyNumber];
         require(candidate.id != 0, "Candidate not found");
 
@@ -299,11 +313,7 @@ contract VoteChainDGTv2 is AccessControl {
     }
 
     // Get vote counts for all parties (only after election ends)
-    function getAllPartyVotes() 
-        external 
-        view 
-        returns (PartyVote[] memory partyVotes) 
-    {
+    function getAllPartyVotes() external view returns (PartyVote[] memory partyVotes) {
         require(block.timestamp > meta.endTime, "Election not closed");
         uint8 candidateCount = meta.candidateCount;
         PartyVote[] memory voteList = new PartyVote[](candidateCount);
@@ -322,17 +332,11 @@ contract VoteChainDGTv2 is AccessControl {
         return voteList;
     }
 
-    // Get the party with the highest votes (only after election ends)
-    function getWinningParty() 
-        external 
-        view 
-        returns (uint8 partyNumber, string memory partyName, uint256 votes) 
-    {
+    // Get the winning candidate details (only after election ends)
+    function getWinningParty() external view returns (Candidate memory) {
         require(block.timestamp > meta.endTime, "Election not closed");
         uint8 candidateCount = meta.candidateCount;
-
-        uint8 winningPartyNumber = 0;
-        string memory winningPartyName = "";
+        Candidate memory winningCandidate;
         uint256 highestVotes = 0;
 
         for (uint8 i = 1; i <= candidateCount; i++) {
@@ -340,32 +344,12 @@ contract VoteChainDGTv2 is AccessControl {
                 uint256 currentVotes = candidates[i].voteCount;
                 if (currentVotes > highestVotes) {
                     highestVotes = currentVotes;
-                    winningPartyNumber = candidates[i].partyNumber;
-                    winningPartyName = candidates[i].partyName;
+                    winningCandidate = candidates[i];
                 }
             }
         }
 
-        require(winningPartyNumber != 0, "No candidates found");
-        return (winningPartyNumber, winningPartyName, highestVotes);
-    }
-
-    // Get winner
-    function getWinner()
-        external
-        view
-        returns (uint8 winnerId, string memory partyName, uint256 votes)
-    {
-        require(block.timestamp > meta.endTime, "Election not closed");
-        uint8 total = meta.candidateCount;
-
-        for (uint8 i = 1; i <= total; ++i) {
-            uint256 vc = candidates[i].voteCount;
-            if (vc > votes) {
-                votes = vc;
-                winnerId = i;
-                partyName = candidates[i].partyName;
-            }
-        }
+        require(winningCandidate.id != 0, "No candidates found");
+        return winningCandidate;
     }
 }
